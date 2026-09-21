@@ -1,57 +1,51 @@
-# Medi+ — Appointment + AI Chatbot (Merged)
+# Medi+ Wellness — Complete Appointment Module
 
-This package merges the existing **Medi+ website + appointment/doctor availability system** with the AI chatbot backend.
+React + TypeScript + Tailwind CSS website with a FastAPI + PostgreSQL + Redis appointment system.
 
-## Website guarantee
+## Included
 
-The existing website layout, sections, colors, appointment UI, doctor availability UI, and admin schedule are kept unchanged. The only frontend feature changed is the floating **Medi+ AI Assistant**.
+- Responsive Medi+ website
+- Right-bottom AI chatbot UI
+- Doctor selection
+- Date selection
+- Fixed 10-minute appointment slots
+- Daily slot generation
+- Doctor working hours: 09:00–17:00
+- Default break: 13:00–14:00
+- PostgreSQL permanent appointment storage
+- Redis distributed slot lock
+- PostgreSQL row-level slot lock
+- Unique constraints to prevent double booking
+- Idempotency-Key protection against duplicate submissions
+- Daily admin appointment list
+- Asia/Kolkata timezone configuration
+- API health endpoint
 
-## AI chatbot
+## Project structure
 
-- NVIDIA API-backed AI chat
-- Mistral-NeMo-Minitron 8B configurable through `NVIDIA_MODEL`
-- Same PostgreSQL doctor/leave/slot schedule as **Book an Appointment**
-- Live availability answers
-- Persistent chat history in PostgreSQL
-- Old chat sessions/history in the chatbot UI
-- New chat button
-- Voice input using browser Speech Recognition (Chrome/Edge)
-- AI answer read-aloud using browser speech synthesis
-- NVIDIA API key stays on the backend
-
-### Chat endpoints
-
-- `POST /api/chat`
-- `GET /api/chat/history?session_id=...`
-
-The frontend sends a stable `session_id` and unique `message_id`, so the backend can restore previous messages and avoid duplicate assistant responses.
-
-## Appointment connection
-
-The chatbot reads the same database tables used by the booking flow:
-
-- doctors
-- doctor_leaves
-- appointment_slots
-- appointments
-
-Therefore, the chatbot does not maintain a separate appointment calendar. If a doctor is on confirmed leave, the chatbot reports the same unavailable status used by the booking screen.
-
-## Run locally
-
-### 1. Configure NVIDIA
-
-Create `backend/.env` from `backend/.env.example` and set:
-
-```env
-NVIDIA_API_KEY=your_nvidia_key
-NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1
-NVIDIA_MODEL=mistralai/Mistral-NeMo-Minitron-8B-Instruct
+```text
+medi-plus-website/
+├── src/
+│   ├── main.tsx
+│   └── styles.css
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── models.py
+│   │   ├── schemas.py
+│   │   ├── services.py
+│   │   ├── db.py
+│   │   └── config.py
+│   ├── sql/schema.sql
+│   ├── requirements.txt
+│   └── Dockerfile
+├── docker-compose.yml
+└── .env.example
 ```
 
-Do not put the NVIDIA key in the React/Vite frontend.
+## Quick start — Docker
 
-### 2. Start backend, PostgreSQL and Redis
+From the project root:
 
 ```powershell
 docker compose up -d --build
