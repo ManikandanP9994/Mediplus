@@ -1,4 +1,4 @@
-# Medi+ — Appointment + AI Chatbot (Merged)
+# Medi+ — Appointment + AI Chatbot
 
 This package merges the existing **Medi+ website + appointment/doctor availability system** with the AI chatbot backend.
 
