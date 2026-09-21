@@ -3,12 +3,12 @@ import { createRoot } from 'react-dom/client'
 import {
   ArrowRight, CalendarDays, Check, ChevronDown, Clock3, HeartPulse,
   Menu, MessageCircle, RefreshCw, Send, ShieldCheck, Sparkles,
-  Stethoscope, X
+  Stethoscope, X, Mic, MicOff, Volume2, Square, History, Plus
 } from 'lucide-react'
 import './styles.css'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-const CHAT_API_URL = import.meta.env.VITE_CHAT_API_URL
+const CHAT_API_URL = import.meta.env.VITE_CHAT_API_URL || `${API_URL}/api/chat`
 
 type ChatResponse = {
   answer?: unknown
@@ -78,22 +78,82 @@ function App() {
   const [bookingOpen, setBookingOpen] = useState(false)
   const [adminOpen, setAdminOpen] = useState(false)
   const [chatSending, setChatSending] = useState(false)
-  const [messages, setMessages] = useState<{ from: 'bot' | 'user'; text: string }[]>([
-    { from: 'bot', text: 'Hello! I’m the Medi+ assistant. Ask me about services, appointments, insurance, or general care.' },
-  ])
+  const [chatSpeaking, setChatSpeaking] = useState(false)
+  const [chatListening, setChatListening] = useState(false)
+  const [chatHistoryOpen, setChatHistoryOpen] = useState(false)
+  const [chatSessions, setChatSessions] = useState<{ id: string; title: string; updatedAt: string }[]>([])
+  const [sessionId, setSessionId] = useState(() => {
+    const saved = localStorage.getItem('medi-plus-chat-session')
+    return saved || crypto.randomUUID()
+  })
+  const [messages, setMessages] = useState<{ from: 'bot' | 'user'; text: string; messageId?: string }[]>([])
   const [input, setInput] = useState('')
   const chatEnd = useRef<HTMLDivElement>(null)
 
-  useEffect(() => chatEnd.current?.scrollIntoView({ behavior: 'smooth' }), [messages])
+  useEffect(() => {
+    localStorage.setItem('medi-plus-chat-session', sessionId)
+    chatEnd.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, sessionId])
 
-  const sendMessage = async () => {
-    const value = input.trim()
-    if (!value || chatSending) return
-    setMessages((m) => [...m, { from: 'user', text: value }])
+  useEffect(() => {
+    if (!chatOpen || !CHAT_API_URL) return
+    fetch(`${CHAT_API_URL}/history?session_id=${encodeURIComponent(sessionId)}`)
+      .then(r => r.ok ? r.json() : [])
+      .then((rows: any[]) => {
+        if (rows.length) {
+          setMessages(rows.map(x => ({
+            from: x.role === 'user' ? 'user' : 'bot',
+            text: x.content,
+            messageId: x.message_id
+          })))
+        } else {
+          setMessages([{ from: 'bot', text: 'Hello! I’m the Medi+ AI assistant. Ask me about care, doctors, or the same live appointment schedule used by Book an Appointment.' }])
+        }
+      })
+      .catch(() => setMessages([{ from: 'bot', text: 'Hello! I’m the Medi+ AI assistant. How can I help you today?' }]))
+  }, [chatOpen, sessionId])
+
+  const loadChatSessions = () => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('medi-plus-chat-sessions') || '[]')
+      setChatSessions(Array.isArray(saved) ? saved : [])
+    } catch { setChatSessions([]) }
+  }
+
+  const rememberChatSession = (id: string, firstUserMessage?: string) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('medi-plus-chat-sessions') || '[]')
+      const list = Array.isArray(saved) ? saved : []
+      const existing = list.find((x: any) => x.id === id)
+      const item = {
+        id,
+        title: firstUserMessage?.slice(0, 42) || existing?.title || 'Medi+ chat',
+        updatedAt: new Date().toISOString()
+      }
+      const next = [item, ...list.filter((x: any) => x.id !== id)].slice(0, 20)
+      localStorage.setItem('medi-plus-chat-sessions', JSON.stringify(next))
+      setChatSessions(next)
+    } catch {}
+  }
+
+  const newChat = () => {
+    const id = crypto.randomUUID()
+    setSessionId(id)
+    setMessages([{ from: 'bot', text: 'New Medi+ chat started. How can I help you?' }])
     setInput('')
+    setChatHistoryOpen(false)
+  }
+
+  const sendMessage = async (forcedValue?: string) => {
+    const value = (forcedValue ?? input).trim()
+    if (!value || chatSending) return
+    const messageId = crypto.randomUUID()
+    setMessages(m => [...m, { from: 'user', text: value, messageId }])
+    setInput('')
+    rememberChatSession(sessionId, value)
 
     if (!CHAT_API_URL) {
-      setMessages((m) => [...m, { from: 'bot', text: 'Configure VITE_CHAT_API_URL to connect the Medi+ assistant to your Hospital RAG endpoint.' }])
+      setMessages(m => [...m, { from: 'bot', text: 'The Medi+ AI service is not configured yet.' }])
       return
     }
 
@@ -102,22 +162,68 @@ function App() {
       const response = await fetch(CHAT_API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: value, query: value, question: value }),
+        body: JSON.stringify({ session_id: sessionId, message_id: messageId, message: value }),
       })
-      const payload: unknown = await response.json().catch(() => null)
-      if (!response.ok) {
-        throw new Error(`Chat request failed (${response.status})`)
-      }
-
+      const payload = await response.json().catch(() => null)
+      if (!response.ok) throw new Error(payload?.detail || `Chat request failed (${response.status})`)
       const answer = getChatAnswer(payload)
       if (!answer) throw new Error('The chat endpoint returned no answer')
-      setMessages((m) => [...m, { from: 'bot', text: answer }])
+      setMessages(m => [...m, { from: 'bot', text: answer, messageId: payload.message_id }])
+      rememberChatSession(sessionId)
     } catch {
-      setMessages((m) => [...m, { from: 'bot', text: 'I could not reach the care assistant right now. Please try again shortly.' }])
+      setMessages(m => [...m, { from: 'bot', text: 'I could not reach the Medi+ AI assistant right now. Please try again shortly.' }])
     } finally {
       setChatSending(false)
     }
   }
+
+  const toggleVoice = () => {
+    const w = window as any
+    const SpeechRecognition = w.SpeechRecognition || w.webkitSpeechRecognition
+    if (!SpeechRecognition) {
+      window.alert('Voice input is supported in Chrome and Edge.')
+      return
+    }
+    if (chatListening) {
+      if (w.__mediRecognition) w.__mediRecognition.stop()
+      setChatListening(false)
+      return
+    }
+    const recognition = new SpeechRecognition()
+    recognition.lang = 'en-IN'
+    recognition.interimResults = false
+    recognition.continuous = false
+    recognition.onstart = () => setChatListening(true)
+    recognition.onresult = (event: any) => {
+      const spoken = event.results?.[0]?.[0]?.transcript || ''
+      setInput(spoken)
+      if (spoken) sendMessage(spoken)
+    }
+    recognition.onerror = () => setChatListening(false)
+    recognition.onend = () => setChatListening(false)
+    w.__mediRecognition = recognition
+    recognition.start()
+  }
+
+  const speakMessage = (text: string) => {
+    if (!('speechSynthesis' in window)) return
+    if (chatSpeaking) {
+      window.speechSynthesis.cancel()
+      setChatSpeaking(false)
+      return
+    }
+    const utterance = new SpeechSynthesisUtterance(text)
+    utterance.lang = 'en-IN'
+    utterance.onend = () => setChatSpeaking(false)
+    setChatSpeaking(true)
+    window.speechSynthesis.cancel()
+    window.speechSynthesis.speak(utterance)
+  }
+
+  useEffect(() => {
+    if (chatHistoryOpen) loadChatSessions()
+  }, [chatHistoryOpen])
+
 
   return (
     <div className="min-h-screen bg-cream text-ink selection:bg-sage/40">
@@ -188,7 +294,35 @@ function App() {
       <footer id="contact" className="bg-ink px-5 py-14 text-white sm:px-8 lg:px-10 lg:py-20"><div className="mx-auto grid max-w-7xl gap-12 lg:grid-cols-[1.3fr_.7fr_.7fr]"><div><p className="text-[10px] uppercase tracking-[.22em] text-white/45">Healing starts here.</p><p className="mt-4 max-w-md text-sm leading-6 text-white/65">Thoughtful healthcare, trusted professionals and a connected experience — designed around you.</p><div className="mt-12 font-serif text-7xl tracking-[-.03em] sm:text-8xl">MEDI+</div></div><div><p className="text-[10px] uppercase tracking-[.2em] text-white/45">Explore</p>{nav.concat(['Book appointment']).map(x => x === 'Book appointment' ? <button key={x} onClick={() => setBookingOpen(true)} className="mt-4 block text-left text-xs text-white/70 hover:text-white">{x}</button> : <a key={x} href={`#${x.toLowerCase().replace(' ', '-')}`} className="mt-4 block text-xs text-white/70 hover:text-white">{x}</a>)}</div><div><p className="text-[10px] uppercase tracking-[.2em] text-white/45">Contact</p><p className="mt-4 text-xs leading-6 text-white/65">care@medi-plus.example<br />+91 80000 00000<br />Mon–Sat · 8:00–20:00</p><button onClick={() => setAdminOpen(true)} className="mt-6 text-[9px] uppercase tracking-[.18em] text-white/35 hover:text-white/70">Admin daily schedule</button></div></div><div className="mx-auto mt-12 max-w-7xl border-t border-white/10 pt-5 text-[9px] uppercase tracking-[.2em] text-white/35">© 2026 Medi+. Healthcare, thoughtfully connected.</div></footer>
 
       <button aria-label="Open Medi+ chatbot" onClick={() => setChatOpen(true)} className="fixed bottom-5 right-5 z-50 grid h-16 w-16 place-items-center rounded-full bg-ink text-white shadow-soft ring-4 ring-white transition hover:scale-105 sm:bottom-7 sm:right-7"><MessageCircle size={25} /></button>
-      {chatOpen && <div className="fixed bottom-24 right-4 z-50 flex w-[calc(100vw-32px)] max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-ink/10 sm:right-7"><div className="flex items-center justify-between bg-ink px-5 py-4 text-white"><div><p className="font-serif text-xl">Medi+ Assistant</p><p className="text-[9px] uppercase tracking-[.18em] text-white/55">Online · Here to help</p></div><button aria-label="Close chatbot" onClick={() => setChatOpen(false)}><X size={18} /></button></div><div className="h-72 space-y-3 overflow-y-auto bg-cream p-4">{messages.map((m, i) => <div key={i} className={`flex ${m.from === 'user' ? 'justify-end' : 'justify-start'}`}><div className={`max-w-[82%] rounded-2xl px-4 py-3 text-xs leading-5 ${m.from === 'user' ? 'rounded-br-sm bg-ink text-white' : 'rounded-bl-sm bg-white text-ink shadow-sm'}`}>{m.text}</div></div>)}{chatSending && <div className="text-xs text-ink/45">Thinking...</div>}<div ref={chatEnd} /></div><div className="flex items-center gap-2 border-t border-ink/10 bg-white p-3"><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Ask about care..." className="min-w-0 flex-1 bg-cream px-4 py-3 text-xs outline-none" /><button aria-label="Send message" disabled={chatSending} onClick={sendMessage} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink text-white disabled:cursor-wait disabled:opacity-50"><Send size={16} /></button></div></div>}
+      {chatOpen && <div className="fixed bottom-24 right-4 z-50 flex w-[calc(100vw-32px)] max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-ink/10 sm:right-7">
+        <div className="flex items-center justify-between bg-ink px-5 py-4 text-white">
+          <div><p className="font-serif text-xl">Medi+ AI Assistant</p><p className="text-[9px] uppercase tracking-[.18em] text-white/55">AI · Live appointments connected</p></div>
+          <div className="flex items-center gap-1">
+            <button aria-label="New chat" onClick={newChat} className="rounded-full p-2 hover:bg-white/10"><Plus size={15}/></button>
+            <button aria-label="Chat history" onClick={() => setChatHistoryOpen(v => !v)} className="rounded-full p-2 hover:bg-white/10"><History size={15}/></button>
+            <button aria-label="Close chatbot" onClick={() => setChatOpen(false)} className="rounded-full p-2 hover:bg-white/10"><X size={18} /></button>
+          </div>
+        </div>
+        {chatHistoryOpen && <div className="max-h-52 overflow-y-auto border-b border-ink/10 bg-white p-3">
+          <div className="mb-2 flex items-center justify-between"><p className="text-[10px] font-semibold uppercase tracking-[.16em] text-ink/50">Old chats</p><button onClick={newChat} className="text-[10px] underline">New chat</button></div>
+          {chatSessions.length === 0 ? <p className="py-4 text-xs text-ink/40">No saved chats yet.</p> : chatSessions.map(x => <button key={x.id} onClick={() => { setSessionId(x.id); setChatHistoryOpen(false) }} className={`mb-1 w-full rounded-xl p-3 text-left text-xs ${x.id === sessionId ? 'bg-mist' : 'hover:bg-cream'}`}><p className="truncate font-medium">{x.title}</p><p className="mt-1 text-[9px] text-ink/40">{new Date(x.updatedAt).toLocaleString()}</p></button>)}
+        </div>}
+        <div className="h-72 space-y-3 overflow-y-auto bg-cream p-4">
+          {messages.map((m, i) => <div key={`${m.messageId || 'm'}-${i}`} className={`group flex ${m.from === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[82%] rounded-2xl px-4 py-3 text-xs leading-5 ${m.from === 'user' ? 'rounded-br-sm bg-ink text-white' : 'rounded-bl-sm bg-white text-ink shadow-sm'}`}>
+              <div className="whitespace-pre-wrap">{m.text}</div>
+              {m.from === 'bot' && <button onClick={() => speakMessage(m.text)} className="mt-2 flex items-center gap-1 text-[9px] text-ink/45 hover:text-ink">{chatSpeaking ? <Square size={11}/> : <Volume2 size={11}/>} {chatSpeaking ? 'Stop' : 'Listen'}</button>}
+            </div>
+          </div>)}
+          {chatSending && <div className="text-xs text-ink/45">Medi+ AI is thinking...</div>}
+          <div ref={chatEnd} />
+        </div>
+        <div className="flex items-center gap-2 border-t border-ink/10 bg-white p-3">
+          <button aria-label="Speak to AI" onClick={toggleVoice} className={`grid h-11 w-11 shrink-0 place-items-center rounded-full ${chatListening ? 'bg-red-600 text-white' : 'bg-cream text-ink'}`}>{chatListening ? <MicOff size={16}/> : <Mic size={16}/>}</button>
+          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} placeholder="Chat with Medi+ AI..." className="min-w-0 flex-1 bg-cream px-4 py-3 text-xs outline-none" />
+          <button aria-label="Send message" disabled={chatSending} onClick={() => sendMessage()} className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-ink text-white disabled:cursor-wait disabled:opacity-50"><Send size={16} /></button>
+        </div>
+      </div>}
 
       {bookingOpen && <BookingModal onClose={() => setBookingOpen(false)} />}
       {adminOpen && <AdminSchedule onClose={() => setAdminOpen(false)} />}
