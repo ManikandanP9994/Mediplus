@@ -4,12 +4,12 @@ import httpx
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import selectinload
 
 from .config import settings
 from .db import Base, SessionLocal, engine
-from .models import Appointment, AppointmentSlot, Doctor, DoctorLeave
+from .models import Appointment, AppointmentSlot, Doctor, DoctorLeave, ChatSession, ChatMessage
 from .schemas import (
     AppointmentCreate,
     AppointmentOut,
@@ -18,8 +18,10 @@ from .schemas import (
     SlotOut,
     DoctorAvailabilityOut,
     DoctorLeaveCreate,
+    ChatMessageIn, ChatMessageOut, ChatHistoryMessageOut,
 )
 from .services import create_appointment, generate_daily_slots
+from .chat_service import generate_ai_answer
 
 
 app = FastAPI(title="Medi+ Appointment API", version="1.0.0")
@@ -39,6 +41,11 @@ app.add_middleware(
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.execute(text("ALTER TABLE chat_messages DROP CONSTRAINT IF EXISTS uq_chat_session_message"))
+        await conn.execute(text(
+            "ALTER TABLE chat_messages ADD CONSTRAINT uq_chat_session_message "
+            "UNIQUE (session_id, message_id, role)"
+        ))
 
     async with SessionLocal() as db:
         doctors = (await db.execute(select(Doctor))).scalars().all()
@@ -67,30 +74,55 @@ async def health():
     return {"status": "ok", "database": "connected", "redis": "connected"}
 
 
-@app.post("/api/chat")
-async def chat(payload: dict[str, object]):
-    if not settings.hospital_rag_url:
-        raise HTTPException(status_code=503, detail="Hospital RAG endpoint is not configured.")
+@app.post("/api/chat", response_model=ChatMessageOut)
+async def chat(payload: ChatMessageIn):
+    async with SessionLocal() as db:
+        existing = (await db.execute(
+            select(ChatMessage).where(
+                ChatMessage.session_id == payload.session_id,
+                ChatMessage.message_id == payload.message_id,
+                ChatMessage.role == "assistant",
+            )
+        )).scalar_one_or_none()
+        if existing:
+            return ChatMessageOut(
+                session_id=payload.session_id,
+                message_id=payload.message_id,
+                answer=existing.content,
+                created_at=existing.created_at.isoformat(),
+            )
 
-    headers = {"Content-Type": "application/json"}
-    if settings.hospital_rag_api_key:
-        headers["Authorization"] = f"Bearer {settings.hospital_rag_api_key}"
+        session = (await db.execute(select(ChatSession).where(ChatSession.session_id == payload.session_id))).scalar_one_or_none()
+        if session is None:
+            session = ChatSession(session_id=payload.session_id)
+            db.add(session)
+            await db.flush()
 
-    try:
-        async with httpx.AsyncClient(timeout=settings.hospital_rag_timeout_seconds) as client:
-            response = await client.post(settings.hospital_rag_url, json=payload, headers=headers)
-            response.raise_for_status()
-    except httpx.TimeoutException as exc:
-        raise HTTPException(status_code=504, detail="Hospital RAG endpoint timed out.") from exc
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=502, detail="Hospital RAG endpoint returned an error.") from exc
-    except httpx.RequestError as exc:
-        raise HTTPException(status_code=502, detail="Hospital RAG endpoint could not be reached.") from exc
+        history_rows = (await db.execute(
+            select(ChatMessage).where(ChatMessage.session_id == payload.session_id).order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
+        )).scalars().all()
+        history = [{"role": x.role, "content": x.content} for x in history_rows[-10:]]
 
-    try:
-        return response.json()
-    except ValueError:
-        return {"answer": response.text}
+        answer, _context = await generate_ai_answer(db, payload.message, history)
+
+        # Store the user turn and assistant turn under the same message_id.
+        db.add(ChatMessage(session_id=payload.session_id, message_id=payload.message_id, role="user", content=payload.message))
+        db.add(ChatMessage(session_id=payload.session_id, message_id=payload.message_id, role="assistant", content=answer))
+        await db.commit()
+
+        created = (await db.execute(
+            select(ChatMessage).where(ChatMessage.session_id == payload.session_id, ChatMessage.message_id == payload.message_id, ChatMessage.role == "assistant")
+        )).scalar_one()
+        return ChatMessageOut(session_id=payload.session_id, message_id=payload.message_id, answer=answer, created_at=created.created_at.isoformat())
+
+
+@app.get("/api/chat/history", response_model=list[ChatHistoryMessageOut])
+async def chat_history(session_id: str = Query(..., min_length=8, max_length=100)):
+    async with SessionLocal() as db:
+        rows = (await db.execute(
+            select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc())
+        )).scalars().all()
+        return [ChatHistoryMessageOut(message_id=x.message_id, role=x.role, content=x.content, created_at=x.created_at.isoformat()) for x in rows]
 
 
 @app.get("/api/doctors", response_model=list[DoctorOut])

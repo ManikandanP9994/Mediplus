@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     timezone: str = "Asia/Kolkata"
     cors_origins: str = "http://localhost:5173"
     appointment_hold_seconds: int = 30
+    nvidia_api_key: str | None = None
+    nvidia_base_url: str = "https://integrate.api.nvidia.com/v1"
+    nvidia_model: str = "mistralai/Mistral-NeMo-Minitron-8B-Instruct"
 
     model_config = SettingsConfigDict(
         env_file=".env",

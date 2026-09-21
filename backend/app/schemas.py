@@ -64,3 +64,23 @@ class DoctorLeaveCreate(BaseModel):
     doctor_id: int
     leave_date: date
     reason: str | None = None
+
+
+class ChatMessageIn(BaseModel):
+    session_id: str = Field(min_length=8, max_length=100)
+    message_id: str = Field(min_length=8, max_length=100)
+    message: str = Field(min_length=1, max_length=4000)
+
+
+class ChatMessageOut(BaseModel):
+    session_id: str
+    message_id: str
+    answer: str
+    created_at: str
+
+
+class ChatHistoryMessageOut(BaseModel):
+    message_id: str
+    role: str
+    content: str
+    created_at: str

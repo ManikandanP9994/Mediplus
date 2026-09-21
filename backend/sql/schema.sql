@@ -58,3 +58,20 @@ CREATE TABLE IF NOT EXISTS doctor_leaves (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT uq_doctor_leave_date UNIQUE (doctor_id, leave_date)
 );
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+  id BIGSERIAL PRIMARY KEY,
+  session_id VARCHAR(100) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id BIGSERIAL PRIMARY KEY,
+  session_id VARCHAR(100) NOT NULL,
+  message_id VARCHAR(100) NOT NULL,
+  role VARCHAR(20) NOT NULL,
+  content VARCHAR(12000) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT uq_chat_session_message UNIQUE (session_id, message_id, role)
+);
