@@ -1,0 +1,41 @@
+services:
+  backend:
+    build: ./backend
+    container_name: medpool-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://medpool:medpool_dev_password@postgres:5432/medpool
+      REDIS_URL: redis://redis:6379/0
+      HOSPITAL_RAG_URL: ${HOSPITAL_RAG_URL:-}
+      HOSPITAL_RAG_API_KEY: ${HOSPITAL_RAG_API_KEY:-}
+      HOSPITAL_RAG_TIMEOUT_SECONDS: ${HOSPITAL_RAG_TIMEOUT_SECONDS:-30}
+      TIMEZONE: Asia/Kolkata
+      CORS_ORIGINS: http://localhost:5173
+      APPOINTMENT_HOLD_SECONDS: 30
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: medpool-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: medpool
+      POSTGRES_USER: medpool
+      POSTGRES_PASSWORD: medpool_dev_password
+    volumes:
+      - medpool_postgres:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: medpool-redis
+    restart: unless-stopped
+    volumes:
+      - medpool_redis:/data
+
+volumes:
+  medpool_postgres:
+  medpool_redis:
