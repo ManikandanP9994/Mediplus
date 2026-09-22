@@ -1,0 +1,6 @@
+services:
+  - type: web
+    name: mediplus-api
+    runtime: docker
+    plan: free
+    healthCheckPath: /health

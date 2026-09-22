@@ -30,7 +30,10 @@ redis = Redis.from_url(settings.redis_url, decode_responses=True)
 origins = [x.strip() for x in settings.cors_origins.split(",") if x.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=[
+    "http://localhost:5173",
+    "https://mediplus-hospital.netlify.app/",
+],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

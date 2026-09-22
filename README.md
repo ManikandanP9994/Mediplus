@@ -55,6 +55,14 @@ docker compose ps
 Backend: `http://localhost:8000`
 Swagger: `http://localhost:8000/docs`
 
+To run the API directly with the backend virtual environment, use:
+
+```powershell
+cd backend
+.venv\Scripts\Activate.ps1
+python -m uvicorn app.main:app --reload
+```
+
 ### 3. Start frontend
 
 ```powershell
