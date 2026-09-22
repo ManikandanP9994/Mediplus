@@ -10,7 +10,7 @@ services:
       HOSPITAL_RAG_API_KEY: ${HOSPITAL_RAG_API_KEY:-}
       HOSPITAL_RAG_TIMEOUT_SECONDS: ${HOSPITAL_RAG_TIMEOUT_SECONDS:-30}
       TIMEZONE: Asia/Kolkata
-      CORS_ORIGINS: http://localhost:5173
+      CORS_ORIGINS: https://mediplus-hospital.netlify.app/
       APPOINTMENT_HOLD_SECONDS: 30
       NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       NVIDIA_BASE_URL: ${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
