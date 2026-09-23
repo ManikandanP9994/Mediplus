@@ -55,6 +55,15 @@ docker compose ps
 Backend: `http://localhost:8000`
 Swagger: `http://localhost:8000/docs`
 
+To run the API image separately while using the Compose PostgreSQL and Redis services:
+
+```powershell
+cd backend
+docker run --rm --name mediplus-api --network medi_default --env-file .env `
+	-e DATABASE_URL=postgresql+asyncpg://medpool:medpool_dev_password@postgres:5432/medpool `
+	-e REDIS_URL=redis://redis:6379/0 -p 8001:8000 mediplus-api
+```
+
 To run the API directly with the backend virtual environment, use:
 
 ```powershell
